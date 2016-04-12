@@ -32,29 +32,45 @@ class Base(object):
 # 书籍的父类，定义了书籍处理的共通方法
 class BaseBook(Base):
 
+    setting = {}
+
+    # 网络连接的默认设置
+    setting["timeout"]        = 30         # 超时时间修正
+    setting["headers"]        = {}         # 请求头设置
+    setting["retry_time"]     = 3          # 联网失败时的重试次数
+
+    # 内容提取的默认设置
+    setting["keep_image"]     = True       # 是否保留图片
+    setting["img_file_size"]  = 1024       # 图片文件的最小字节
+    setting["img_size"]       = (600,800)  # 图片缩放后的大小
+    setting["readability"]    = True       # 使用 readability 自动提取正文内容
+    setting["catch"]          = []         # 待提取的内容
+    setting["remove_tags"]    = []         # 需移除的标签
+    setting["remove_ids"]     = []         # 需移除的 id
+    setting["remove_classes"] = []         # 需移除的 class
+
+    # 针对 Feed 的默认设置
+    setting["oldest_article"] = 1          # 最旧文章
+    setting["max_article"]    = -1         # 最多抓取的文章个数
+    setting["deliver_days"]   = 0          # 每隔几天投递一次
+
     def __init__(self, log = None, imgindex = 0, setting = {}):
 
         default = {}
-
-        # 网络连接的默认设置
-        default["timeout"]        = 30         # 超时时间修正
-        default["headers"]        = {}         # 请求头设置
-        default["retry_time"]     = 1          # 联网失败时的重试次数
-
-        # 内容提取的默认设置
-        default["keep_image"]     = True       # 是否保留图片
-        default["img_file_size"]  = 1024       # 图片文件的最小字节
-        default["img_size"]       = (600,800)  # 图片缩放后的大小
-        default["readability"]    = True       # 使用 readability 自动提取正文内容
-        default["catch"]          = []         # 待提取的内容
-        default["remove_tags"]    = []         # 需移除的标签
-        default["remove_ids"]     = []         # 需移除的 id
-        default["remove_classes"] = []         # 需移除的 class
-
-        # 针对 Feed 的默认设置
-        default["oldest_article"] = 0          # 最旧文章
-        default["max_article"]    = -1         # 最多抓取的文章个数
-        default["deliver_days"]   = 0          # 每隔几天投递一次
+        default["timeout"]        = 30
+        default["headers"]        = {}
+        default["retry_time"]     = 3
+        default["keep_image"]     = True
+        default["img_file_size"]  = 1024
+        default["img_size"]       = (600,800)
+        default["readability"]    = True
+        default["catch"]          = []
+        default["remove_tags"]    = []
+        default["remove_ids"]     = []
+        default["remove_classes"] = []
+        default["oldest_article"] = 1
+        default["max_article"]    = -1
+        default["deliver_days"]   = 0
 
         default.update(setting)
         default.update(self.setting)
@@ -92,19 +108,17 @@ class BaseBook(Base):
         return None
 
     def get_items(self):
-        # yield (section, title, url, html, brief)
+        # yield (section, title, url, soup, brief)
         pass
 
     def Items(self, opts = None, user = None):
-        for section, title, url, html, brief in self.get_items():
-            soup = self.process_article(html, url)
+        for section, title, url, soup, brief in self.get_items():
             thumbnail = None
-            if self.setting["keep_image"]:
-                for imgmime, imgurl, fnimg, imgcontent in self.process_image(soup, url):
-                    if thumbnail: yield (imgmime, imgurl, fnimg, imgcontent, None, None)
-                    else:
-                        thumbnail = imgurl
-                        yield (imgmime, imgurl, fnimg, imgcontent, None, True)
+            for imgmime, imgurl, fnimg, imgcontent in self.process_image(soup, url):
+                if thumbnail: yield (imgmime, imgurl, fnimg, imgcontent, None, None)
+                else:
+                    thumbnail = imgurl
+                    yield (imgmime, imgurl, fnimg, imgcontent, None, True)
             content = unicode(soup)
             if brief is None: brief = self.generate_brief(soup)
             yield (section, url, title, content, brief, thumbnail)
@@ -121,23 +135,24 @@ class BaseBook(Base):
                 break
         return brief
 
-    def process_article(self, html, url):
-        if self.setting["readability"]:
-            soup = BeautifulSoup(self.readability(html), "lxml")
-        else:
-            soup = BeautifulSoup(html, "lxml")
-            self.clear_article(soup)
+    def process_article(self, html):
+        soup = self.clear_article(html)
         for attr in [attr for attr in soup.html.body.attrs]: del body[attr]
         for x in soup.find_all(['article', 'aside', 'header', 'footer', 'nav',
             'figcaption', 'figure', 'section', 'time']):
             x.name = 'div'
         return soup
 
-    def readability(self, html):
-        doc = readability.Document(html)
-        return doc.summary(html_partial = False)
+    def clear_article(self, html):
+        if self.setting["readability"]:
+            doc = readability.Document(html)
+            soup = BeautifulSoup(doc.summary(html_partial = False), "lxml")
+            if len(soup.find('body').contents) > 0: return soup
+        return self.clear_article_by_soup(html)
 
-    def clear_article(self, soup):
+    def clear_article_by_soup(self, html):
+        soup = BeautifulSoup(html, "lxml")
+
         if self.setting["catch"]:
             body = soup.new_tag('body')
             try:
@@ -150,14 +165,10 @@ class BaseBook(Base):
         remove_tags = ['script','object','video','embed','noscript','style','link']
         remove_classes = []
         remove_ids = ['controlbar_container']
-        remove_attrs = ['width','height','onclick','onload','style']
-
+        remove_attrs = ['width','height','onclick','onload','style','id']
         remove_tags += self.setting["remove_tags"]
         remove_classes += self.setting["remove_classes"]
         remove_ids += self.setting["remove_ids"]
-
-        if not self.setting["keep_image"]: remove_tags += ['img']
-
         for tag in soup.find_all(remove_tags):
           tag.decompose()
         for id in remove_ids:
@@ -169,12 +180,15 @@ class BaseBook(Base):
         for cmt in soup.find_all(text=lambda text:isinstance(text, Comment)):
             cmt.extract()
 
-        if not self.setting["keep_image"]: return
-        for img in soup.find_all('img'):
-            if img.parent and img.parent.parent and img.parent.name == 'a':
-                img.parent.replace_with(img)
+        return soup
 
     def process_image(self, soup, url):
+        for img in soup.find_all('img'):
+            if self.setting["keep_image"]:
+                if img.parent and img.parent.parent and img.parent.name == 'a':
+                    img.parent.replace_with(img)
+            else: img.decompose()
+        if not self.setting["keep_image"]: return
         for imgurl, img in self.process_image_url(soup, url):
             imgcontent = self.featch_content(imgurl)
             if (not imgcontent) or (len(imgcontent) < self.setting["img_file_size"]):
@@ -205,6 +219,16 @@ class BaseBook(Base):
             self.log.warn('Process image failed (%s), use original image.' % str(e))
             return data
 
+    def frag_to_html(self, title, content):
+        frame = [
+          '<!DOCTYPE html SYSTEM "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">',
+          '<html xmlns="http://www.w3.org/1999/xhtml">',
+          '<head><meta http-equiv="Content-Type" content="text/html; charset=utf-8">',
+          '<title>%s</title></head><body><div>%s</div></body></html>'
+        ]
+        frame = ''.join(frame)
+        return frame % (title, content)
+
 
 # Feed 的父类，定义了解析 Feed 的通用方法
 class BaseFeed(object):
@@ -223,7 +247,7 @@ class BaseFeed(object):
                 content = feedparser.parse(content)
                 for e in content['entries'][:self.setting["max_article"]]:
                     if self.check_article_skip(time, e): break
-                    for title, url, html, brief in self.create_feed_content(e):
+                    for section, title, url, html, brief in self.create_feed_content(e, section):
                         yield (section, title, url, html, brief)
             else: self.log.warn('Fetch feed failed, skip(%s)' % section)
 
@@ -235,8 +259,8 @@ class BaseFeed(object):
     def check_article_skip(self, time, e):
         if self.setting["oldest_article"] < 1: return False
         updated = None
-        if hasattr(e, 'updated_parsed') and e.updated_parsed: updated = e.updated_parsed
-        elif hasattr(e, 'published_parsed') and e.published_parsed: updated = e.published_parsed
+        if hasattr(e, 'published_parsed') and e.published_parsed: updated = e.published_parsed
+        elif hasattr(e, 'updated_parsed') and e.updated_parsed: updated = e.updated_parsed
         elif hasattr(e, 'created_parsed'): updated = e.created_parsed
         if updated is None: return False
         updated = datetime.datetime(*(updated[0:6]))
@@ -247,8 +271,43 @@ class BaseFeed(object):
 # 网络爬虫的父类，定义了抓取网页内容的通用方法
 class BaseSpider(object):
 
-    # TODO
-    def get_page(self, link): pass
+    def spider_main(self, detect = None, capture = set()):
+        detect  = detect  # 待检测网址
+        capture = capture # 待抓取网页
+        done    = set()   # 已抓取网页
+        cache   = {}      # 本次抓取结果的缓存
+        result  = []      # 抓取结果
+        task = capture if detect is None else (set([detect]) | capture)
+        task = task - done
+        while len(task) > 0:
+            for url in task:
+                cache[url] = None
+                content = self.featch_content(url)
+                if content: cache[url] = content.decode('utf-8')
+                else: self.log.warn('Fetch URL failed, skip(%s)' % url)
+            for url in capture:
+                if not url in done: result.append(cache.get(url, None))
+            detect, capture = self.spider_refresh_capture(cache.get(detect, None))
+            done.add(url)
+            cache = {}
+            task = capture if detect is None else (set([detect]) | capture)
+            task = task - done
+        return result
+
+    def spider_refresh_capture(self, html):
+        # return detect_url, set([capture_url])
+        if html is None: return None, set()
+        return None, set()
+
+    def spider_generate_html(self, result):
+          html = u''
+          for html in result:
+              if html:
+                  soup = self.process_article(html)
+                  html += unicode(soup.html.body)
+              else: html += '<hr /><div>This Page Get Fail</div><hr />'
+          return html
+
 
 # 全文 RSS 书籍的类
 class BaseFeedBook1(BaseFeed, BaseBook):
@@ -262,30 +321,21 @@ class BaseFeedBook1(BaseFeed, BaseBook):
     setting       = {}
     feeds         = []
 
-    def frag_to_html(self, content, title):
-        frame = [
-          '<!DOCTYPE html SYSTEM "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">',
-          '<html xmlns="http://www.w3.org/1999/xhtml">',
-          '<head><meta http-equiv="Content-Type" content="text/html; charset=utf-8">',
-          '<title>%s</title></head><body><h1>%s</h1><p>%s</p></body></html>'
-        ]
-        frame = ''.join(frame)
-        return frame % (title, title, content)
-
     def get_items(self):
-        # yield (section, title, url, html, brief)
+        # yield (section, title, url, soup, brief)
         for section, title, url, html, brief in self.parse_feed():
-            yield (section, title, url, html, brief)
+            yield (section, title, url, self.process_article(html), brief)
 
-    def create_feed_content(self, e):
-        # yield (title, url, html, brief)
+    def create_feed_content(self, e, section):
+        # yield (section, title, url, html, brief)
         if hasattr(e, 'link'): url = e.link
-        else: pass
+        else: return
         summary = e.summary if hasattr(e, 'summary') else ""
         content = e.content[0]['value'] if (hasattr(e, 'content') and e.content[0]['value']) else ""
         html = content if len(content) > len(summary) else summary
-        html = self.frag_to_html(html, e.title)
-        yield (e.title, url, html, None)
+        html = '<h1>%s</h1><div>%s</div>' % (e.title, html)
+        html = self.frag_to_html(e.title, html)
+        yield (section, e.title, url, html, None)
 
 
 # 非全文 RSS 书籍的类
@@ -301,19 +351,18 @@ class BaseFeedBook2(BaseSpider, BaseFeed, BaseBook):
     feeds         = []
 
     def get_items(self):
-        # yield (section, title, url, html, brief)
+        # yield (section, title, url, soup, brief)
         for section, title, url, html, brief in self.parse_feed():
-            yield (section, title, url, html, brief)
+            yield (section, title, url, BeautifulSoup(html, "lxml"), brief)
 
-    def parser_feed_content(self, feed):
-        # yield (title, url, html, brief)
+    def create_feed_content(self, e, section):
+        # yield (section, title, url, html, brief)
         if hasattr(e, 'link'): url = e.link
-        else: pass
-        content = self.featch_content(url)
-        if content:
-            html = content.decode('utf-8')
-            yield (e.title, url, html, None)
-        else: self.log.warn('Fetch %s failed, skip(%s)' % (e.title, url))
+        else: return
+        result = self.spider_main(capture = set([url]))
+        html = self.spider_generate_html(result)
+        html = self.frag_to_html(e.title, html)
+        yield (section, e.title, url, html, None)
 
 
 # 抓取网页内容生成书籍内容的类
@@ -327,6 +376,16 @@ class BaseWebBook(BaseSpider, BaseBook):
     deliver_days  = []
     setting       = {}
     feeds         = []
+
+    def get_items(self):
+        # yield (section, title, url, soup, brief)
+        for feed in self.feeds:
+            section, url = feed[0], feed[1]
+            title = section
+            result = self.spider_main(capture = set([url]))
+            html = self.spider_generate_html(result)
+            html = self.frag_to_html(title, html)
+            yield(section, title, url, BeautifulSoup(html, "lxml"), None)
 
 
 # 杂志的类，一本杂志由多本书籍组成
@@ -344,6 +403,9 @@ class BaseMagazine(Base):
     def Items(self, opts = None, user = None):
         i = 0
         for book_class in self.book_list:
-            book = book_class(imgindex = i, setting = self.setting)
-            for data in book.Items(opts,user): yield data
-            i = book.imgindex
+            try:
+                book = book_class(imgindex = i, setting = self.setting)
+                for data in book.Items(opts,user): yield data
+                i = book.imgindex
+            except Exception as e:
+                default_log.warn("Failure in pushing book '%s' : %s" % (book_class, str(e)))
