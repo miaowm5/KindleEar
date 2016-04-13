@@ -37,6 +37,7 @@ class BaseBook(Base):
     # 网络连接的默认设置
     setting["timeout"]        = 30         # 超时时间修正
     setting["headers"]        = {}         # 请求头设置
+    setting["host"]           = None       # Host 设置
     setting["retry_time"]     = 3          # 联网失败时的重试次数
 
     # 内容提取的默认设置
@@ -59,6 +60,7 @@ class BaseBook(Base):
         default = {}
         default["timeout"]        = 30
         default["headers"]        = {}
+        default["host"]           = None
         default["retry_time"]     = 3
         default["keep_image"]     = True
         default["img_file_size"]  = 1024
@@ -81,7 +83,7 @@ class BaseBook(Base):
         self._imgindex = imgindex
 
         self.log = default_log if log is None else log
-        self.opener = URLOpener(timeout = CONNECTION_TIMEOUT + self.setting["timeout"],
+        self.opener = URLOpener(self.setting['host'], timeout = CONNECTION_TIMEOUT + self.setting["timeout"],
           headers = self.setting["headers"])
 
     @property
@@ -102,9 +104,10 @@ class BaseBook(Base):
             if result.status_code == 200 and result.content: return result.content
             else:
                 retry_time += 1
-                text = 'Fetch content failed(%s), retry after 30s second(%s)'
-                self.log.warn( text % (result.status_code, retry_time) )
+                text = 'Fetch content failed(%s):%s, retry after 30s second(%s)'
+                self.log.warn( text % (url, URLOpener.CodeMap(result.status_code), retry_time) )
                 time.sleep(30)
+        self.log.warn('Fail!')
         return None
 
     def get_items(self):
@@ -160,7 +163,9 @@ class BaseBook(Base):
                     for tag in soup.find('body').find_all(**spec):
                         body.insert(len(body.contents), tag)
                 soup.find('body').replace_with(body)
-            except: pass
+            except:
+                self.log.warn("catch contents failed...")
+                debug_mail(html)
 
         remove_tags = ['script','object','video','embed','noscript','style','link']
         remove_classes = []
@@ -264,8 +269,7 @@ class BaseFeed(object):
         elif hasattr(e, 'created_parsed'): updated = e.created_parsed
         if updated is None: return False
         updated = datetime.datetime(*(updated[0:6]))
-        days = (time - updated).days
-        return days > self.setting["oldest_article"]
+        return (time - updated).total_seconds() > self.setting["oldest_article"] * 86400
 
 
 # 网络爬虫的父类，定义了抓取网页内容的通用方法
@@ -287,14 +291,14 @@ class BaseSpider(object):
                 else: self.log.warn('Fetch URL failed, skip(%s)' % url)
             for url in capture:
                 if not url in done: result.append(cache.get(url, None))
-            detect, capture = self.spider_refresh_capture(cache.get(detect, None))
+            detect, capture = self.spider_refresh_capture(detect, cache.get(detect, None))
             done.add(url)
             cache = {}
             task = capture if detect is None else (set([detect]) | capture)
             task = task - done
         return result
 
-    def spider_refresh_capture(self, html):
+    def spider_refresh_capture(self, url, html):
         # return detect_url, set([capture_url])
         if html is None: return None, set()
         return None, set()
@@ -409,3 +413,9 @@ class BaseMagazine(Base):
                 i = book.imgindex
             except Exception as e:
                 default_log.warn("Failure in pushing book '%s' : %s" % (book_class, str(e)))
+
+
+def debug_mail(content, name='page.html'):
+    from google.appengine.api import mail
+    mail.send_mail(SRC_EMAIL, SRC_EMAIL, "KindleEar Debug", "KindlerEar",
+        attachments=[(name, content),])
