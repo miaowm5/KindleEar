@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding:utf-8 -*-
 
-import urlparse, os.path, datetime, time, imghdr
+import urlparse, os.path, datetime, time, imghdr, random
 from lib import feedparser
 from bs4 import BeautifulSoup, Comment
 from calibre.utils.img import rescale_image
@@ -39,6 +39,7 @@ class BaseBook(Base):
     setting["headers"]        = {}         # 请求头设置
     setting["host"]           = None       # Host 设置
     setting["retry_time"]     = 3          # 联网失败时的重试次数
+    setting["retry_sleep"]    = 30         # 联网失败时的重试延迟时间
 
     # 内容提取的默认设置
     setting["keep_image"]     = True       # 是否保留图片
@@ -62,6 +63,7 @@ class BaseBook(Base):
         default["headers"]        = {}
         default["host"]           = None
         default["retry_time"]     = 3
+        default["retry_sleep"]    = 30
         default["keep_image"]     = True
         default["img_file_size"]  = 1024
         default["img_size"]       = (600,800)
@@ -104,9 +106,11 @@ class BaseBook(Base):
             if result.status_code == 200 and result.content: return result.content
             else:
                 retry_time += 1
-                text = 'Fetch content failed(%s):%s, retry after 30s second(%s)'
-                self.log.warn( text % (url, URLOpener.CodeMap(result.status_code), retry_time) )
-                time.sleep(30)
+                sleep_time = self.setting["retry_sleep"]
+                sleep_time = random.randint(sleep_time, sleep_time + 10)
+                text = 'Fetch content failed(%s):%s, retry after %s second(%s)'
+                self.log.warn( text % (url, URLOpener.CodeMap(result.status_code), sleep_time, retry_time) )
+                time.sleep(sleep_time)
         self.log.warn('Fail!')
         return None
 
