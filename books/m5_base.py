@@ -107,7 +107,7 @@ class BaseBook(Base):
             else:
                 retry_time += 1
                 sleep_time = self.setting["retry_sleep"]
-                sleep_time = random.randint(sleep_time, sleep_time + 10)
+                sleep_time = random.randint(sleep_time, sleep_time + 30)
                 text = 'Fetch content failed(%s):%s, retry after %s second(%s)'
                 self.log.warn( text % (url, URLOpener.CodeMap(result.status_code), sleep_time, retry_time) )
                 time.sleep(sleep_time)
@@ -248,7 +248,7 @@ class BaseFeed(object):
         for feed in self.feeds:
             section, url = feed[0], feed[1]
             if self.check_feed_skip(time):
-                self.log.info( "Skip feed: %s" % (section) )
+                self.log.warn( "Skip feed: %s" % (section) )
                 continue
             content = self.featch_content(url)
             if content:
