@@ -99,7 +99,7 @@ class BaseBook(Base):
         path = os.path.normpath(url.path)
         return urlparse.urlunsplit((url.scheme, url.netloc, path, url.query, url.fragment))
 
-    def featch_content(self, url):
+    def featch_url(self, url):
         retry_time = 0
         while retry_time < self.setting["retry_time"]:
             result = self.opener.open(url)
@@ -113,6 +113,12 @@ class BaseBook(Base):
                 time.sleep(sleep_time)
         self.log.warn('Fail!')
         return None
+
+    def featch_content(self, url):
+        return self.featch_url(url)
+
+    def featch_img_content(self, url):
+        return self.featch_url(url)
 
     def get_items(self):
         # yield (section, title, url, soup, brief)
@@ -199,7 +205,7 @@ class BaseBook(Base):
             else: img.decompose()
         if not self.setting["keep_image"]: return
         for imgurl, img in self.process_image_url(soup, url):
-            imgcontent = self.featch_content(imgurl)
+            imgcontent = self.featch_img_content(imgurl)
             if (not imgcontent) or (len(imgcontent) < self.setting["img_file_size"]):
                 img.decompose()
                 continue
@@ -308,13 +314,13 @@ class BaseSpider(object):
         return None, set()
 
     def spider_generate_html(self, result):
-          html = u''
-          for html in result:
-              if html:
-                  soup = self.process_article(html)
-                  html += unicode(soup.html.body)
-              else: html += '<hr /><div>This Page Get Fail</div><hr />'
-          return html
+        html = u''
+        for html in result:
+            try:
+                soup = self.process_article(html)
+                html += unicode(soup.html.body)
+            except: html += '<hr /><div>This Page Get Fail</div><hr />'
+        return html
 
 
 # 全文 RSS 书籍的类
