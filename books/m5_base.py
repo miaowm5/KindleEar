@@ -314,13 +314,13 @@ class BaseSpider(object):
         return None, set()
 
     def spider_generate_html(self, result):
-        html = u''
+        content = u''
         for html in result:
             try:
                 soup = self.process_article(html)
-                html += unicode(soup.html.body)
-            except: html += '<hr /><div>This Page Get Fail</div><hr />'
-        return html
+                content += unicode(soup.html.body)
+            except: content += '<hr /><div>This Page Get Fail</div><hr />'
+        return content
 
 
 # 全文 RSS 书籍的类
