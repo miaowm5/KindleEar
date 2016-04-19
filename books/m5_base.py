@@ -103,7 +103,7 @@ class BaseBook(Base):
         retry_time = 0
         while retry_time < self.setting["retry_time"]:
             result = self.opener.open(url)
-            if result.status_code == 200 and result.content: return result.content
+            if result.status_code == 200: return result.content
             else:
                 retry_time += 1
                 sleep_time = self.setting["retry_sleep"]
