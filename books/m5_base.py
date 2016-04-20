@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding:utf-8 -*-
 
-import urlparse, os.path, datetime, time, imghdr, random
+import urlparse, os.path, datetime, time, imghdr, random, urllib
 from lib import feedparser
 from bs4 import BeautifulSoup, Comment
 from calibre.utils.img import rescale_image
@@ -40,12 +40,15 @@ class BaseBook(Base):
     setting["host"]           = None       # Host 设置
     setting["retry_time"]     = 3          # 联网失败时的重试次数
     setting["retry_sleep"]    = 30         # 联网失败时的重试延迟时间
+    setting["proxy_content"]  = False      # 通过转发服务器获取内容
+    setting["proxy_img"]      = False      # 通过转发服务器获取图片
 
     # 内容提取的默认设置
     setting["keep_image"]     = True       # 是否保留图片
     setting["img_file_size"]  = 1024       # 图片文件的最小字节
     setting["img_size"]       = (600,800)  # 图片缩放后的大小
-    setting["readability"]    = True       # 使用 readability 自动提取正文内容
+    setting["block_img"]      = []         # 图片地址中包含指定文字时，放弃获取该图片
+    setting["readability"]    = False      # 使用 readability 自动提取正文内容
     setting["catch"]          = []         # 待提取的内容
     setting["remove_tags"]    = []         # 需移除的标签
     setting["remove_ids"]     = []         # 需移除的 id
@@ -64,10 +67,13 @@ class BaseBook(Base):
         default["host"]           = None
         default["retry_time"]     = 3
         default["retry_sleep"]    = 30
+        default["proxy_content"]  = False
+        default["proxy_img"]      = False
         default["keep_image"]     = True
         default["img_file_size"]  = 1024
         default["img_size"]       = (600,800)
-        default["readability"]    = True
+        default["block_img"]      = []
+        default["readability"]    = False
         default["catch"]          = []
         default["remove_tags"]    = []
         default["remove_ids"]     = []
@@ -99,9 +105,10 @@ class BaseBook(Base):
         path = os.path.normpath(url.path)
         return urlparse.urlunsplit((url.scheme, url.netloc, path, url.query, url.fragment))
 
-    def featch_url(self, url):
+    def featch_url(self, url, retry = None):
+        if not retry: retry = self.setting["retry_time"]
         retry_time = 0
-        while retry_time < self.setting["retry_time"]:
+        while retry_time < retry:
             result = self.opener.open(url)
             if result.status_code == 200: return result.content
             else:
@@ -115,10 +122,20 @@ class BaseBook(Base):
         return None
 
     def featch_content(self, url):
+        if self.setting['proxy_content']: url = SHARE_FUCK_GFW_SRV % urllib.quote(url)
         return self.featch_url(url)
 
     def featch_img_content(self, url):
+        if self.check_url_block(self.setting["block_img"], url):
+            self.log.warn('Customize block img(%s)' % url)
+            return None
+        if self.setting['proxy_img']: url = SHARE_FUCK_GFW_SRV % urllib.quote(url)
         return self.featch_url(url)
+
+    def check_url_block(self, rule, url):
+        for key_word in rule:
+            if key_word in url: return True
+        return False
 
     def get_items(self):
         # yield (section, title, url, soup, brief)
@@ -264,7 +281,7 @@ class BaseFeed(object):
                     if self.check_article_skip(time, e): break
                     for section, title, url, html, brief in self.create_feed_content(e, section):
                         yield (section, title, url, html, brief)
-            else: self.log.warn('Fetch feed failed, skip(%s)' % section)
+            else: self.log.warn('Fetch feed failed: %s' % section)
 
     def check_feed_skip(self, time):
         if self.setting["deliver_days"] < 1: return False
@@ -317,9 +334,12 @@ class BaseSpider(object):
         content = u''
         for html in result:
             try:
+                if not html: continue
                 soup = self.process_article(html)
                 content += unicode(soup.html.body)
-            except: content += '<hr /><div>This Page Get Fail</div><hr />'
+            except Exception as e:
+                self.log.warn('Creat html fail(%s):%s' % (str(e), html))
+                content += '<p>*** This Page Get Fail ***</p>'
         return content
 
 
@@ -375,6 +395,7 @@ class BaseFeedBook2(BaseSpider, BaseFeed, BaseBook):
         else: return
         result = self.spider_main(capture = set([url]))
         html = self.spider_generate_html(result)
+        html = '<h1>%s</h1><div>%s</div>' % (e.title, html)
         html = self.frag_to_html(e.title, html)
         yield (section, e.title, url, html, None)
 
@@ -414,7 +435,8 @@ class BaseMagazine(Base):
     setting       = {}
     book_list     = []
 
-    def Items(self, opts = None, user = None):
+    def get_items(self, opts = None, user = None):
+        # yield (section, url, title, content, brief, thumbnail)
         i = 0
         for book_class in self.book_list:
             try:
@@ -423,6 +445,11 @@ class BaseMagazine(Base):
                 i = book.imgindex
             except Exception as e:
                 default_log.warn("Failure in pushing book '%s' : %s" % (book_class, str(e)))
+
+    def Items(self, opts = None, user = None):
+        # yield (section, url, title, content, brief, thumbnail)
+        for section, url, title, content, brief, thumbnail in self.get_items(opts, user):
+            yield (section, url, title, content, brief, thumbnail)
 
 
 def debug_mail(content, name='page.html'):
