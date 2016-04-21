@@ -38,7 +38,7 @@ class BaseBook(Base):
     setting["timeout"]        = 30         # 超时时间修正
     setting["headers"]        = {}         # 请求头设置
     setting["host"]           = None       # Host 设置
-    setting["retry_time"]     = 3          # 联网失败时的重试次数
+    setting["retry_time"]     = 1          # 联网失败时的重试次数
     setting["retry_sleep"]    = 30         # 联网失败时的重试延迟时间
     setting["proxy_content"]  = False      # 通过转发服务器获取内容
     setting["proxy_img"]      = False      # 通过转发服务器获取图片
@@ -65,7 +65,7 @@ class BaseBook(Base):
         default["timeout"]        = 30
         default["headers"]        = {}
         default["host"]           = None
-        default["retry_time"]     = 3
+        default["retry_time"]     = 1
         default["retry_sleep"]    = 30
         default["proxy_content"]  = False
         default["proxy_img"]      = False
@@ -187,7 +187,7 @@ class BaseBook(Base):
             body = soup.new_tag('body')
             try:
                 for spec in self.setting["catch"]:
-                    for tag in soup.find('body').find_all(**spec):
+                    for tag in soup.find_all(**spec):
                         body.insert(len(body.contents), tag)
                 soup.find('body').replace_with(body)
             except:
@@ -226,7 +226,7 @@ class BaseBook(Base):
             if (not imgcontent) or (len(imgcontent) < self.setting["img_file_size"]):
                 img.decompose()
                 continue
-            imgcontent = self.edit_image(imgcontent)
+            imgcontent = self.edit_image(imgcontent, imgurl)
             imgtype = imghdr.what(None, imgcontent)
             if not imgtype:
                 img.decompose()
@@ -245,10 +245,10 @@ class BaseBook(Base):
                 img.decompose()
                 continue
 
-    def edit_image(self, data):
+    def edit_image(self, data, imgurl):
         try: return rescale_image(data, png2jpg = True, reduceto = self.setting["img_size"])
         except Exception as e:
-            self.log.warn('Process image failed (%s), use original image.' % str(e))
+            self.log.warn('Process image failed (%s):%s' % (imgurl, str(e)))
             return data
 
     def frag_to_html(self, title, content):
