@@ -44,6 +44,7 @@ class BaseBook(Base):
     setting["proxy_img"]      = False      # 通过转发服务器获取图片
 
     # 内容提取的默认设置
+    setting["add_share"]      = True       # 是否在文章末尾添加分享链接
     setting["keep_image"]     = True       # 是否保留图片
     setting["img_file_size"]  = 1024       # 图片文件的最小字节
     setting["img_size"]       = (600,800)  # 图片缩放后的大小
@@ -69,6 +70,7 @@ class BaseBook(Base):
         default["retry_sleep"]    = 30
         default["proxy_content"]  = False
         default["proxy_img"]      = False
+        default["add_share"]      = True
         default["keep_image"]     = True
         default["img_file_size"]  = 1024
         default["img_size"]       = (600,800)
@@ -123,7 +125,9 @@ class BaseBook(Base):
 
     def featch_content(self, url):
         if self.setting['proxy_content']: url = SHARE_FUCK_GFW_SRV % urllib.quote(url)
-        return self.featch_url(url)
+        content = self.featch_url(url)
+        if content: content = content.decode("utf-8")
+        return content
 
     def featch_img_content(self, url):
         if self.check_url_block(self.setting["block_img"], url):
@@ -149,9 +153,20 @@ class BaseBook(Base):
                 else:
                     thumbnail = imgurl
                     yield (imgmime, imgurl, fnimg, imgcontent, None, True)
+            if self.setting["add_share"]: soup = self.add_share_link(soup, url, title)
             content = unicode(soup)
             if brief is None: brief = self.generate_brief(soup)
             yield (section, url, title, content, brief, thumbnail)
+
+    def add_share_link(self, soup, url, title):
+        h3 = soup.new_tag('h3')
+        h3.append(u'分享文章')
+        soup.body.append(h3)
+        html = u'http://note.youdao.com/memory/?url=%s&title=%s&sumary=&product='
+        a = soup.new_tag('a', href = html % (urllib.quote(url).encode('utf-8'), title))
+        a.append(u'分享到有道云笔记')
+        soup.body.append(a)
+        return soup
 
     def generate_brief(self, soup):
         brief = u''
@@ -275,7 +290,6 @@ class BaseFeed(object):
                 continue
             content = self.featch_content(url)
             if content:
-                content = content.decode('utf-8')
                 content = feedparser.parse(content)
                 for e in content['entries'][:self.setting["max_article"]]:
                     if self.check_article_skip(time, e): break
@@ -314,7 +328,7 @@ class BaseSpider(object):
             for url in task:
                 cache[url] = None
                 content = self.featch_content(url)
-                if content: cache[url] = content.decode('utf-8')
+                if content: cache[url] = content
                 else: self.log.warn('Fetch URL failed, skip(%s)' % url)
             for url in capture:
                 if not url in done: result.append(cache.get(url, None))
