@@ -153,7 +153,7 @@ class BaseBook(Base):
                 else:
                     thumbnail = imgurl
                     yield (imgmime, imgurl, fnimg, imgcontent, None, True)
-            if self.setting["add_share"]: soup = self.add_share_link(soup, url, title)
+            if self.setting["add_share"]: soup = self.add_share_link(soup, url = url, title = title)
             content = unicode(soup)
             if brief is None: brief = self.generate_brief(soup)
             yield (section, url, title, content, brief, thumbnail)
@@ -161,11 +161,18 @@ class BaseBook(Base):
     def add_share_link(self, soup, url, title):
         h3 = soup.new_tag('h3')
         h3.append(u'分享文章')
+        br = soup.new_tag('br')
         soup.body.append(h3)
-        html = u'http://note.youdao.com/memory/?url=%s&title=%s&sumary=&product='
-        a = soup.new_tag('a', href = html % (urllib.quote(url).encode('utf-8'), title))
-        a.append(u'分享到有道云笔记')
-        soup.body.append(a)
+        link = []
+        href = url
+        link.append((href, u'原文地址'))
+        href = u'http://note.youdao.com/memory/?url=%s&title=%s&sumary=&product=' % (urllib.quote(url).encode('utf-8'), title)
+        link.append((href, u'分享到有道云笔记'))
+        for href, text in link:
+            a = soup.new_tag('a', href = href)
+            a.append(text)
+            soup.body.append(a)
+            soup.body.append(br)
         return soup
 
     def generate_brief(self, soup):
@@ -331,7 +338,7 @@ class BaseSpider(object):
                 if content: cache[url] = content
                 else: self.log.warn('Fetch URL failed, skip(%s)' % url)
             for url in capture:
-                if not url in done: result.append(cache.get(url, None))
+                if not url in done: result.append( (cache.get(url, None), url) )
             detect, capture = self.spider_refresh_capture(detect, cache.get(detect, None))
             done.add(url)
             cache = {}
@@ -346,14 +353,14 @@ class BaseSpider(object):
 
     def spider_generate_html(self, result):
         content = u''
-        for html in result:
+        for html, url in result:
             try:
                 if not html: continue
                 soup = self.process_article(html)
                 content += unicode(soup.html.body)
             except Exception as e:
-                self.log.warn('Creat html fail(%s):%s' % (str(e), html))
-                content += '<p>*** This Page Get Fail ***</p>'
+                self.log.warn('Creat html fail(%s):%s' % (url, str(e)))
+                content += '<p>*** This Page Get Fail ***</p><a href="%s">Link</a>' % url
         return content
 
 
