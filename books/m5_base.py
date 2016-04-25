@@ -51,6 +51,7 @@ class BaseBook(Base):
     setting["block_img"]      = []         # 图片地址中包含指定文字时，放弃获取该图片
     setting["readability"]    = False      # 使用 readability 自动提取正文内容
     setting["catch"]          = []         # 待提取的内容
+    setting["remove"]         = []         # 待移除的内容
     setting["remove_tags"]    = []         # 需移除的标签
     setting["remove_ids"]     = []         # 需移除的 id
     setting["remove_classes"] = []         # 需移除的 class
@@ -77,6 +78,7 @@ class BaseBook(Base):
         default["block_img"]      = []
         default["readability"]    = False
         default["catch"]          = []
+        default["remove"]         = []
         default["remove_tags"]    = []
         default["remove_ids"]     = []
         default["remove_classes"] = []
@@ -161,18 +163,19 @@ class BaseBook(Base):
     def add_share_link(self, soup, url, title):
         h3 = soup.new_tag('h3')
         h3.append(u'分享文章')
-        br = soup.new_tag('br')
         soup.body.append(h3)
         link = []
+        quote_url = urllib.quote(url).encode('utf-8')
         href = url
         link.append((href, u'原文地址'))
-        href = u'http://note.youdao.com/memory/?url=%s&title=%s&sumary=&product=' % (urllib.quote(url).encode('utf-8'), title)
+        href = u'http://note.youdao.com/memory/?url=%s&title=%s&sumary=&product=' % (quote_url, title)
         link.append((href, u'分享到有道云笔记'))
         for href, text in link:
+            div = soup.new_tag('div')
             a = soup.new_tag('a', href = href)
             a.append(text)
-            soup.body.append(a)
-            soup.body.append(br)
+            div.append(a)
+            soup.body.append(div)
         return soup
 
     def generate_brief(self, soup):
@@ -216,6 +219,9 @@ class BaseBook(Base):
                 self.log.warn("catch contents failed...")
                 debug_mail(html)
 
+        for spec in self.setting["remove"]:
+            for tag in soup.find_all(**spec): tag.decompose()
+
         remove_tags = ['script','object','video','embed','noscript','style','link']
         remove_classes = []
         remove_ids = ['controlbar_container']
@@ -223,10 +229,9 @@ class BaseBook(Base):
         remove_tags += self.setting["remove_tags"]
         remove_classes += self.setting["remove_classes"]
         remove_ids += self.setting["remove_ids"]
-        for tag in soup.find_all(remove_tags):
-          tag.decompose()
+        for tag in soup.find_all(remove_tags): tag.decompose()
         for id in remove_ids:
-          for tag in soup.find_all(attrs={"id":id}): tag.decompose()
+            for tag in soup.find_all(attrs={"id":id}): tag.decompose()
         for cls in remove_classes:
             for tag in soup.find_all(attrs={"class":cls}): tag.decompose()
         for attr in remove_attrs:
@@ -259,13 +264,20 @@ class BaseBook(Base):
 
     def process_image_url(self, soup, url):
         for img in soup.find_all('img'):
-            imgurl = img['src'] if 'src' in img.attrs else ''
+            imgurl = self.get_image_url(img)
             if imgurl:
+                if imgurl.startswith('data:image'):
+                    img.decompose()
+                    continue
                 if not imgurl.startswith('http'): imgurl = self.urljoin(url, imgurl)
                 yield (imgurl, img)
             else:
                 img.decompose()
                 continue
+
+    def get_image_url(self, img):
+        url = img['src'] if 'src' in img.attrs else None
+        return url
 
     def edit_image(self, data, imgurl):
         try: return rescale_image(data, png2jpg = True, reduceto = self.setting["img_size"])
