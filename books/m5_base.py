@@ -46,6 +46,7 @@ class BaseBook(Base):
     # 内容提取的默认设置
     setting["add_share"]      = True       # 是否在文章末尾添加分享链接
     setting["keep_image"]     = True       # 是否保留图片
+    setting['no_thumbnail']   = False      # 是否不在概览界面显示图片预览
     setting["img_file_size"]  = 1024       # 图片文件的最小字节
     setting["img_size"]       = (600,800)  # 图片缩放后的大小
     setting["block_img"]      = []         # 图片地址中包含指定文字时，放弃获取该图片
@@ -73,6 +74,7 @@ class BaseBook(Base):
         default["proxy_img"]      = False
         default["add_share"]      = True
         default["keep_image"]     = True
+        default["no_thumbnail"]   = False
         default["img_file_size"]  = 1024
         default["img_size"]       = (600,800)
         default["block_img"]      = []
@@ -151,10 +153,9 @@ class BaseBook(Base):
         for section, title, url, soup, brief in self.get_items():
             thumbnail = None
             for imgmime, imgurl, fnimg, imgcontent in self.process_image(soup, url):
-                if thumbnail: yield (imgmime, imgurl, fnimg, imgcontent, None, None)
-                else:
-                    thumbnail = imgurl
-                    yield (imgmime, imgurl, fnimg, imgcontent, None, True)
+                if (self.setting['no_thumbnail'] or thumbnail): ytype = None
+                else: thumbnail, ytype = imgurl, True
+                yield (imgmime, imgurl, fnimg, imgcontent, None, ytype)
             if self.setting["add_share"]: soup = self.add_share_link(soup, url = url, title = title)
             content = unicode(soup)
             if brief is None: brief = self.generate_brief(soup)
@@ -426,11 +427,14 @@ class BaseFeedBook2(BaseSpider, BaseFeed, BaseBook):
         # yield (section, title, url, html, brief)
         if hasattr(e, 'link'): url = e.link
         else: return
-        result = self.spider_main(capture = set([url]))
+        result = self.spider_main(detect = url, capture = set([url]))
         html = self.spider_generate_html(result)
         html = '<h1>%s</h1><div>%s</div>' % (e.title, html)
         html = self.frag_to_html(e.title, html)
-        yield (section, e.title, url, html, None)
+        summary = e.summary if hasattr(e, 'summary') else ""
+        content = e.content[0]['value'] if (hasattr(e, 'content') and e.content[0]['value']) else ""
+        brief = content if len(content) > len(summary) else summary
+        yield (section, e.title, url, html, brief)
 
 
 # 抓取网页内容生成书籍内容的类
@@ -450,7 +454,7 @@ class BaseWebBook(BaseSpider, BaseBook):
         for feed in self.feeds:
             section, url = feed[0], feed[1]
             title = section
-            result = self.spider_main(capture = set([url]))
+            result = self.spider_main(detect = url, capture = set([url]))
             html = self.spider_generate_html(result)
             html = self.frag_to_html(title, html)
             yield(section, title, url, BeautifulSoup(html, "lxml"), None)
@@ -459,21 +463,24 @@ class BaseWebBook(BaseSpider, BaseBook):
 # 杂志的类，一本杂志由多本书籍组成
 class BaseMagazine(Base):
 
-    title         = ''
-    description   = ''
-    mastheadfile  = DEFAULT_MASTHEAD
-    coverfile     = DEFAULT_COVER
-    deliver_times = []
-    deliver_days  = []
-    setting       = {}
-    book_list     = []
+    title          = ''
+    description    = ''
+    mastheadfile   = DEFAULT_MASTHEAD
+    coverfile      = DEFAULT_COVER
+    deliver_times  = []
+    deliver_days   = []
+    setting        = {}
+    setting["old"] = False
+    book_list      = []
+
 
     def get_items(self, opts = None, user = None):
         # yield (section, url, title, content, brief, thumbnail)
         i = 0
         for book_class in self.book_list:
             try:
-                book = book_class(imgindex = i, setting = self.setting)
+                if self.setting["old"]: book = book_class(imgindex = i)
+                else: book = book_class(imgindex = i, setting = self.setting)
                 for data in book.Items(opts,user): yield data
                 i = book.imgindex
             except Exception as e:
