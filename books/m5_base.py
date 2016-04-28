@@ -434,7 +434,7 @@ class BaseFeedBook2(BaseSpider, BaseFeed, BaseBook):
         summary = e.summary if hasattr(e, 'summary') else ""
         content = e.content[0]['value'] if (hasattr(e, 'content') and e.content[0]['value']) else ""
         brief = content if len(content) > len(summary) else summary
-        yield (section, e.title, url, html, brief)
+        yield (section, e.title, url, html, unicode(BeautifulSoup(brief, "lxml")))
 
 
 # 抓取网页内容生成书籍内容的类
@@ -463,15 +463,15 @@ class BaseWebBook(BaseSpider, BaseBook):
 # 杂志的类，一本杂志由多本书籍组成
 class BaseMagazine(Base):
 
-    title          = ''
-    description    = ''
-    mastheadfile   = DEFAULT_MASTHEAD
-    coverfile      = DEFAULT_COVER
-    deliver_times  = []
-    deliver_days   = []
-    setting        = {}
-    setting["old"] = False
-    book_list      = []
+    title         = ''
+    description   = ''
+    mastheadfile  = DEFAULT_MASTHEAD
+    coverfile     = DEFAULT_COVER
+    deliver_times = []
+    deliver_days  = []
+    setting       = {}
+    old_book      = False
+    book_list     = []
 
 
     def get_items(self, opts = None, user = None):
@@ -479,7 +479,7 @@ class BaseMagazine(Base):
         i = 0
         for book_class in self.book_list:
             try:
-                if self.setting["old"]: book = book_class(imgindex = i)
+                if self.old_book: book = book_class(imgindex = i)
                 else: book = book_class(imgindex = i, setting = self.setting)
                 for data in book.Items(opts,user): yield data
                 i = book.imgindex
