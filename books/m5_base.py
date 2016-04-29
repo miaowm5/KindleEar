@@ -1,13 +1,14 @@
 #!/usr/bin/env python
 # -*- coding:utf-8 -*-
 
-import urlparse, os.path, datetime, time, imghdr, random, urllib
+import urlparse, os.path, datetime, time, imghdr, random, urllib, re
 from lib import feedparser
 from bs4 import BeautifulSoup, Comment
 from calibre.utils.img import rescale_image
 from config import *
 from lib.urlopener import URLOpener
 from lib.readability import readability
+
 
 
 # 书籍与杂志的共通父类，定义与原版相同的对外接口以防止出错
@@ -53,6 +54,7 @@ class BaseBook(Base):
     setting["readability"]    = False      # 使用 readability 自动提取正文内容
     setting["catch"]          = []         # 待提取的内容
     setting["remove"]         = []         # 待移除的内容
+    setting["css_mode"]       = False      # 以 CSS 模式来使用上面两个设置
     setting["remove_tags"]    = []         # 需移除的标签
     setting["remove_ids"]     = []         # 需移除的 id
     setting["remove_classes"] = []         # 需移除的 class
@@ -61,6 +63,7 @@ class BaseBook(Base):
     setting["oldest_article"] = 1          # 最旧文章
     setting["max_article"]    = -1         # 最多抓取的文章个数
     setting["deliver_days"]   = 0          # 每隔几天投递一次
+    setting["offset_days"]    = 0          # 错开隔天投递的天数间隔计算
 
     def __init__(self, log = None, imgindex = 0, setting = {}):
 
@@ -81,17 +84,17 @@ class BaseBook(Base):
         default["readability"]    = False
         default["catch"]          = []
         default["remove"]         = []
+        default["css_mode"]       = False
         default["remove_tags"]    = []
         default["remove_ids"]     = []
         default["remove_classes"] = []
         default["oldest_article"] = 1
         default["max_article"]    = -1
         default["deliver_days"]   = 0
+        default["offset_days"]    = 0
 
         default.update(setting)
         default.update(self.setting)
-        if default["deliver_days"] > 0:
-            default["oldest_article"] = default["deliver_days"]
 
         self.setting = default
         self._imgindex = imgindex
@@ -124,7 +127,7 @@ class BaseBook(Base):
                 text = 'Fetch content failed(%s):%s, retry after %s second(%s)'
                 self.log.warn( text % (url, URLOpener.CodeMap(result.status_code), sleep_time, retry_time) )
                 time.sleep(sleep_time)
-        self.log.warn('Fail!')
+        self.log.warn('Reach max retry limit, get content fail!')
         return None
 
     def featch_content(self, url):
@@ -211,17 +214,16 @@ class BaseBook(Base):
 
         if self.setting["catch"]:
             body = soup.new_tag('body')
-            try:
-                for spec in self.setting["catch"]:
-                    for tag in soup.find_all(**spec):
-                        body.insert(len(body.contents), tag)
-                soup.find('body').replace_with(body)
-            except:
-                self.log.warn("catch contents failed...")
-                debug_mail(html)
+            for spec in self.setting["catch"]:
+                if self.setting["css_mode"]: tags = [tag for tag in soup.select(spec)]
+                else: tags = [tag for tag in soup.find_all(**spec)]
+                for tag in tags: body.append(tag)
+            soup.find('body').replace_with(body)
 
         for spec in self.setting["remove"]:
-            for tag in soup.find_all(**spec): tag.decompose()
+            if self.setting["css_mode"]: tags = [tag for tag in soup.select(spec)]
+            else: tags = [tag for tag in soup.find_all(**spec)]
+            for tag in tags: tag.decompose()
 
         remove_tags = ['script','object','video','embed','noscript','style','link']
         remove_classes = []
@@ -320,7 +322,7 @@ class BaseFeed(object):
     def check_feed_skip(self, time):
         if self.setting["deliver_days"] < 1: return False
         days = (time - datetime.datetime(2016,1,1)).days
-        return days % self.setting["deliver_days"] != 0
+        return (days + self.setting["offset_days"]) % self.setting["deliver_days"] != 0
 
     def check_article_skip(self, time, e):
         if self.setting["oldest_article"] < 1: return False
@@ -352,7 +354,10 @@ class BaseSpider(object):
                 else: self.log.warn('Fetch URL failed, skip(%s)' % url)
             for url in capture:
                 if not url in done: result.append( (cache.get(url, None), url) )
-            detect, capture = self.spider_refresh_capture(detect, cache.get(detect, None))
+            spider = self.spider_refresh_capture(detect, cache.get(detect, None))
+            if len(spider) >= 3:
+                if spider[2]: result.append( (cache.get(detect, None), detect) )
+            detect, capture = spider[0], spider[1]
             done.add(url)
             cache = {}
             task = capture if detect is None else (set([detect]) | capture)
@@ -360,7 +365,7 @@ class BaseSpider(object):
         return result
 
     def spider_refresh_capture(self, url, html):
-        # return detect_url, set([capture_url])
+        # return detect_url, set([capture_url])[, add_detect_to_result]
         if html is None: return None, set()
         return None, set()
 
@@ -434,7 +439,10 @@ class BaseFeedBook2(BaseSpider, BaseFeed, BaseBook):
         summary = e.summary if hasattr(e, 'summary') else ""
         content = e.content[0]['value'] if (hasattr(e, 'content') and e.content[0]['value']) else ""
         brief = content if len(content) > len(summary) else summary
-        yield (section, e.title, url, html, unicode(BeautifulSoup(brief, "lxml")))
+        par = re.compile(r'<[^>]+>',re.S)
+        brief = par.sub(' ', brief)
+        brief = "".join(brief.split())
+        yield (section, e.title, url, html, brief)
 
 
 # 抓取网页内容生成书籍内容的类
