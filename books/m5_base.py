@@ -65,6 +65,9 @@ class BaseBook(Base):
     setting["deliver_days"]   = 0          # 每隔几天投递一次
     setting["offset_days"]    = 0          # 错开隔天投递的天数间隔计算
 
+    # 针对爬虫的默认设置
+    setting["spider_nav"]     = ''         # 定义页码区域的 css，供爬虫自动抓取多页文章
+
     def __init__(self, log = None, imgindex = 0, setting = {}):
 
         default = {}
@@ -92,6 +95,7 @@ class BaseBook(Base):
         default["max_article"]    = -1
         default["deliver_days"]   = 0
         default["offset_days"]    = 0
+        default["spider_nav"]     = ''
 
         default.update(setting)
         default.update(self.setting)
@@ -116,18 +120,19 @@ class BaseBook(Base):
 
     def featch_url(self, url, retry = None):
         if not retry: retry = self.setting["retry_time"]
-        retry_time = 0
-        while retry_time < retry:
+        retry_time = 1
+        while True:
             result = self.opener.open(url)
             if result.status_code == 200: return result.content
             else:
                 retry_time += 1
+                if retry_time > retry: break
                 sleep_time = self.setting["retry_sleep"]
                 sleep_time = random.randint(sleep_time, sleep_time + 30)
                 text = 'Fetch content failed(%s):%s, retry after %s second(%s)'
                 self.log.warn( text % (url, URLOpener.CodeMap(result.status_code), sleep_time, retry_time) )
                 time.sleep(sleep_time)
-        self.log.warn('Reach max retry limit, get content fail!')
+        self.log.warn('Reach max retry limit, get content fail!(%s)' % url)
         return None
 
     def featch_content(self, url):
@@ -367,7 +372,14 @@ class BaseSpider(object):
     def spider_refresh_capture(self, url, html):
         # return detect_url, set([capture_url])[, add_detect_to_result]
         if html is None: return None, set()
-        return None, set()
+        capture = set()
+        if self.setting["spider_nav"]:
+            soup = BeautifulSoup(html, "lxml")
+            nav = soup.select(self.setting["spider_nav"])
+            for e in nav:
+                page_url = e["href"]
+                if (page_url != url): capture.add(page_url)
+        return None, capture
 
     def spider_generate_html(self, result):
         content = u''
